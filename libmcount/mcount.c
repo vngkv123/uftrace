@@ -1198,8 +1198,10 @@ static void mcount_startup(void)
 	if (event_str)
 		mcount_setup_events(dirname, event_str);
 
-	if (plthook_str)
-		mcount_setup_plthook(mcount_exename, false);
+	if (plthook_str) {
+		bool nest_libcall = !!getenv("UFTRACE_NEST_LIBCALL");
+		mcount_setup_plthook(mcount_exename, nest_libcall);
+	}
 
 	if (getenv("UFTRACE_KERNEL_PID_UPDATE"))
 		kernel_pid_update = true;
