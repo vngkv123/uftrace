@@ -490,6 +490,17 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 				.address = entry_addr,
 				.symname = symname,
 			};
+
+			if (tr->flags & TRIGGER_FL_ARGUMENT) {
+				extern void * get_argbuf(struct mcount_thread_data *,
+							 struct mcount_ret_stack *);
+				unsigned *argbuf = get_argbuf(mtdp, rstack);
+
+				sc_ctx.arglen  = argbuf[0];
+				sc_ctx.argbuf  = &argbuf[1];
+				sc_ctx.argspec = tr->pargs;
+			}
+
 			script_uftrace_entry(&sc_ctx);
 			symbol_putname(sym, symname);
 		}
@@ -567,6 +578,17 @@ void mcount_exit_filter_record(struct mcount_thread_data *mtdp,
 				.address = entry_addr,
 				.symname = symname,
 			};
+
+			if (rstack->flags & MCOUNT_FL_RETVAL) {
+				extern void * get_argbuf(struct mcount_thread_data *,
+							 struct mcount_ret_stack *);
+				unsigned *argbuf = get_argbuf(mtdp, rstack);
+
+				sc_ctx.arglen  = argbuf[0];
+				sc_ctx.argbuf  = &argbuf[1];
+				sc_ctx.argspec = rstack->pargs;
+			}
+
 			script_uftrace_exit(&sc_ctx);
 			symbol_putname(sym, symname);
 		}

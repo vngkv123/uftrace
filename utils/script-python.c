@@ -11,6 +11,7 @@
 #include <dlfcn.h>
 #include "utils/symbol.h"
 #include "utils/fstack.h"
+#include "utils/filter.h"
 #include "utils/script.h"
 #include "utils/script-python.h"
 
@@ -58,6 +59,7 @@ enum py_context_idx {
 	PY_CTX_DURATION,
 	PY_CTX_ADDRESS,
 	PY_CTX_SYMNAME,
+	PY_CTX_ARGUMENT,
 };
 
 /* The order has to be aligned with enum py_args above. */
@@ -68,6 +70,7 @@ static const char *py_context_table[] = {
 	"duration",
 	"address",
 	"symname",
+	"arguments",
 };
 
 #define INIT_PY_API_FUNC(func) \
@@ -218,6 +221,131 @@ static void setup_common_args_in_dict(PyObject **pDict,
 	insert_dict_string(*pDict, PYCTX(SYMNAME), sc_ctx->symname);
 }
 
+static void setup_argument_in_dict(PyObject **pDict, bool is_retval,
+				   struct script_context *sc_ctx)
+{
+	struct ftrace_arg_spec *spec;
+	void *data = sc_ctx->argbuf;
+	PyObject *args;
+	union {
+		char          c;
+		short         s;
+		int           i;
+		long          l;
+		long long     L;
+		float         f;
+		double        d;
+		long double   D;
+		unsigned char v[16];
+	} val;
+	int count = 0;
+
+	list_for_each_entry(spec, sc_ctx->argspec, list) {
+		/* skip unwanted arguments or retval */
+		if (is_retval != (spec->idx == RETVAL_IDX))
+			continue;
+
+		count++;
+	}
+
+	if (count == 0)
+		return;
+
+	args = __PyTuple_New(count);
+	if (args == NULL)
+		pr_err("failed to allocate python tuple for argument");
+
+	count = 0;
+	list_for_each_entry(spec, sc_ctx->argspec, list) {
+		unsigned short slen;
+		unsigned short newline = 0;
+		const int null_str = -1;
+		char last_ch;
+		char ch_str[2];
+		char *str;
+
+		/* skip unwanted arguments or retval */
+		if (is_retval != (spec->idx == RETVAL_IDX))
+			continue;
+
+		/* reset the value */
+		memset(val.v, 0, sizeof(val));
+
+		switch (spec->fmt) {
+		case ARG_FMT_AUTO:
+		case ARG_FMT_SINT:
+		case ARG_FMT_UINT:
+		case ARG_FMT_HEX:
+			memcpy(val.v, data, spec->size);
+			switch (spec->size) {
+			case 1:
+				insert_tuple_long(args, count++, val.c);
+				break;
+			case 2:
+				insert_tuple_long(args, count++, val.s);
+				break;
+			case 4:
+				insert_tuple_long(args, count++, val.i);
+				break;
+			case 8:
+				insert_tuple_ull(args, count++, val.L);
+				break;
+			default:
+				pr_warn("invalid integer size: %d\n", spec->size);
+				break;
+			}
+			data += ALIGN(spec->size, 4);
+			break;
+
+		case ARG_FMT_STR:
+		case ARG_FMT_STD_STRING:
+			/* get string length (2 bytes in the beginning) */
+			memcpy(&slen, data, 2);
+
+			/* escape the last '\n' */
+			last_ch = *((char *)data + slen + 1);
+			if (last_ch == '\n')
+				newline = 1;
+
+			str = xmalloc(slen + newline + 1);
+
+			/* copy real string contents */
+			memcpy(str, data + 2, slen);
+			str[slen] = '\0';
+
+			if (newline) {
+				str[slen - 1] = '\\';
+				str[slen]     = 'n';
+				str[slen + 1] = '\0';
+			}
+
+			/* NULL string is encoded as '0xffffffff' */
+			if (!memcmp(str, &null_str, sizeof(null_str)))
+				strcpy(str, "NULL");
+
+			insert_tuple_string(args, count++, str);
+			free(str);
+			data += ALIGN(slen + 2, 4);
+			break;
+
+		case ARG_FMT_CHAR:
+			/* make it a string */
+			memcpy(ch_str, data, 1);
+			ch_str[1] = '\0';
+
+			insert_tuple_string(args, count++, ch_str);
+			data += 4;
+			break;
+
+		default:
+			pr_warn("invalid argument format: %d\n", spec->fmt);
+			break;
+		}
+	}
+
+	__PyDict_SetItemString(*pDict, is_retval ? "retval" : "args", args);
+}
+
 int python_uftrace_entry(struct script_context *sc_ctx)
 {
 	if (unlikely(!pFuncEntry))
@@ -228,6 +356,9 @@ int python_uftrace_entry(struct script_context *sc_ctx)
 
 	/* Setup common arguments in both entry and exit into a dictionary */
 	setup_common_args_in_dict(&pDict, sc_ctx);
+
+	if (sc_ctx->arglen)
+		setup_argument_in_dict(&pDict, false, sc_ctx);
 
 	/* Argument list must be passed in a tuple. */
 	PyObject *pythonContext = __PyTuple_New(1);
@@ -255,6 +386,9 @@ int python_uftrace_exit(struct script_context *sc_ctx)
 
 	/* Add time duration info */
 	insert_dict_ull(pDict, PYCTX(DURATION), sc_ctx->duration);
+
+	if (sc_ctx->arglen)
+		setup_argument_in_dict(&pDict, true, sc_ctx);
 
 	/* Argument list must be passed in a tuple. */
 	PyObject *pythonContext = __PyTuple_New(1);
