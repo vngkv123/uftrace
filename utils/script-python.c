@@ -51,17 +51,17 @@ static PyObject *pName, *pModule, *pFuncEntry, *pFuncExit, *pFuncEnd;
 
 extern struct symtabs symtabs;
 
-enum py_args {
-	PY_ARG_TID = 0,
-	PY_ARG_DEPTH,
-	PY_ARG_TIMESTAMP,
-	PY_ARG_DURATION,
-	PY_ARG_ADDRESS,
-	PY_ARG_SYMNAME,
+enum py_context_idx {
+	PY_CTX_TID = 0,
+	PY_CTX_DEPTH,
+	PY_CTX_TIMESTAMP,
+	PY_CTX_DURATION,
+	PY_CTX_ADDRESS,
+	PY_CTX_SYMNAME,
 };
 
 /* The order has to be aligned with enum py_args above. */
-static const char *py_args_table[] = {
+static const char *py_context_table[] = {
 	"tid",
 	"depth",
 	"timestamp",
@@ -116,13 +116,13 @@ static int import_python_module(char *py_pathname)
 }
 
 static void setup_common_args_in_dict(PyObject **pDict,
-				      struct script_args *sc_args)
+				      struct script_context *sc_ctx)
 {
-	int tid = sc_args->tid;
-	int depth = sc_args->depth;
-	uint64_t timestamp = sc_args->timestamp;
-	unsigned long address = sc_args->address;
-	char *symname = sc_args->symname;
+	int tid = sc_ctx->tid;
+	int depth = sc_ctx->depth;
+	uint64_t timestamp = sc_ctx->timestamp;
+	unsigned long address = sc_ctx->address;
+	char *symname = sc_ctx->symname;
 
 	PyObject *pTid = __PyInt_FromLong(tid);
 	PyObject *pDepth = __PyInt_FromLong(depth);
@@ -130,11 +130,11 @@ static void setup_common_args_in_dict(PyObject **pDict,
 	PyObject *pAddress = __PyInt_FromLong(address);
 	PyObject *pSym  = __PyString_FromString(symname);
 
-	__PyDict_SetItemString(*pDict, py_args_table[PY_ARG_TID], pTid);
-	__PyDict_SetItemString(*pDict, py_args_table[PY_ARG_DEPTH], pDepth);
-	__PyDict_SetItemString(*pDict, py_args_table[PY_ARG_TIMESTAMP], pTimeStamp);
-	__PyDict_SetItemString(*pDict, py_args_table[PY_ARG_ADDRESS], pAddress);
-	__PyDict_SetItemString(*pDict, py_args_table[PY_ARG_SYMNAME], pSym);
+	__PyDict_SetItemString(*pDict, py_context_table[PY_CTX_TID], pTid);
+	__PyDict_SetItemString(*pDict, py_context_table[PY_CTX_DEPTH], pDepth);
+	__PyDict_SetItemString(*pDict, py_context_table[PY_CTX_TIMESTAMP], pTimeStamp);
+	__PyDict_SetItemString(*pDict, py_context_table[PY_CTX_ADDRESS], pAddress);
+	__PyDict_SetItemString(*pDict, py_context_table[PY_CTX_SYMNAME], pSym);
 
 	/* Py_XDECREF() frees the object when the count reaches zero. */
 	Py_XDECREF(pTid);
@@ -144,7 +144,7 @@ static void setup_common_args_in_dict(PyObject **pDict,
 	Py_XDECREF(pSym);
 }
 
-int python_uftrace_entry(struct script_args *sc_args)
+int python_uftrace_entry(struct script_context *sc_ctx)
 {
 	if (unlikely(!pFuncEntry))
 		return -1;
@@ -153,22 +153,22 @@ int python_uftrace_entry(struct script_args *sc_args)
 	PyObject *pDict = __PyDict_New();
 
 	/* Setup common arguments in both entry and exit into a dictionary */
-	setup_common_args_in_dict(&pDict, sc_args);
+	setup_common_args_in_dict(&pDict, sc_ctx);
 
 	/* Argument list must be passed in a tuple. */
-	PyObject *pythonArgument = __PyTuple_New(1);
-	__PyTuple_SetItem(pythonArgument, 0, pDict);
+	PyObject *pythonContext = __PyTuple_New(1);
+	__PyTuple_SetItem(pythonContext, 0, pDict);
 
 	/* Call python function "uftrace_entry". */
-	__PyObject_CallObject(pFuncEntry, pythonArgument);
+	__PyObject_CallObject(pFuncEntry, pythonContext);
 
 	/* Free PyTuple. */
-	Py_XDECREF(pythonArgument);
+	Py_XDECREF(pythonContext);
 
 	return 0;
 }
 
-int python_uftrace_exit(struct script_args *sc_args)
+int python_uftrace_exit(struct script_context *sc_ctx)
 {
 	if (unlikely(!pFuncExit))
 		return -1;
@@ -177,23 +177,23 @@ int python_uftrace_exit(struct script_args *sc_args)
 	PyObject *pDict = __PyDict_New();
 
 	/* Setup common arguments in both entry and exit into a dictionary */
-	setup_common_args_in_dict(&pDict, sc_args);
+	setup_common_args_in_dict(&pDict, sc_ctx);
 
 	/* Add time duration info */
-	uint64_t duration = sc_args->duration;
+	uint64_t duration = sc_ctx->duration;
 	PyObject *pDuration = __PyLong_FromUnsignedLongLong(duration);
-	__PyDict_SetItemString(pDict, py_args_table[PY_ARG_DURATION], pDuration);
+	__PyDict_SetItemString(pDict, py_context_table[PY_CTX_DURATION], pDuration);
 	Py_XDECREF(pDuration);
 
 	/* Argument list must be passed in a tuple. */
-	PyObject *pythonArgument = __PyTuple_New(1);
-	__PyTuple_SetItem(pythonArgument, 0, pDict);
+	PyObject *pythonContext = __PyTuple_New(1);
+	__PyTuple_SetItem(pythonContext, 0, pDict);
 
 	/* Call python function "uftrace_exit". */
-	__PyObject_CallObject(pFuncExit, pythonArgument);
+	__PyObject_CallObject(pFuncExit, pythonContext);
 
 	/* Free PyTuple. */
-	Py_XDECREF(pythonArgument);
+	Py_XDECREF(pythonContext);
 
 	return 0;
 }
