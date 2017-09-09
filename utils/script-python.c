@@ -26,6 +26,9 @@ static const char *libpython = "libpython2.7.so";
 /* python library handle returned by dlopen() */
 static void *python_handle;
 
+/* whether error in script was reported to user */
+static bool python_error_reported = false;
+
 static PyAPI_FUNC(void) (*__Py_Initialize)(void);
 static PyAPI_FUNC(void) (*__PySys_SetPath)(char *);
 static PyAPI_FUNC(PyObject *) (*__PyImport_Import)(PyObject *name);
@@ -59,8 +62,6 @@ static PyAPI_FUNC(int) (*__PyDict_SetItemString)(PyObject *dp, const char *key, 
 static PyAPI_FUNC(PyObject *) (*__PyDict_GetItem)(PyObject *mp, PyObject *key);
 
 static PyObject *pName, *pModule, *pFuncEntry, *pFuncExit, *pFuncEnd;
-
-extern struct symtabs symtabs;
 
 enum py_context_idx {
 	PY_CTX_TID = 0,
@@ -419,6 +420,14 @@ int python_uftrace_entry(struct script_context *sc_ctx)
 
 	/* Call python function "uftrace_entry". */
 	__PyObject_CallObject(pFuncEntry, pythonContext);
+	if (debug) {
+		if (__PyErr_Occurred() && !python_error_reported) {
+			pr_dbg("uftrace_entry failed:\n");
+			__PyErr_Print();
+
+			python_error_reported = true;
+		}
+	}
 
 	/* Free PyTuple. */
 	Py_XDECREF(pythonContext);
@@ -449,6 +458,14 @@ int python_uftrace_exit(struct script_context *sc_ctx)
 
 	/* Call python function "uftrace_exit". */
 	__PyObject_CallObject(pFuncExit, pythonContext);
+	if (debug) {
+		if (__PyErr_Occurred() && !python_error_reported) {
+			pr_dbg("uftrace_exit failed:\n");
+			__PyErr_Print();
+
+			python_error_reported = true;
+		}
+	}
 
 	/* Free PyTuple. */
 	Py_XDECREF(pythonContext);
