@@ -35,8 +35,7 @@
 
 uint64_t mcount_threshold;  /* nsec */
 struct symtabs symtabs = {
-	.flags = SYMTAB_FL_DEMANGLE | SYMTAB_FL_ADJ_OFFSET |
-		 SYMTAB_FL_SKIP_NORMAL | SYMTAB_FL_SKIP_DYNAMIC,
+	.flags = SYMTAB_FL_DEMANGLE | SYMTAB_FL_ADJ_OFFSET,
 };
 int shmem_bufsize = SHMEM_BUFFER_SIZE;
 unsigned long mcount_global_flags = MCOUNT_GFL_SETUP;
@@ -1250,23 +1249,13 @@ static void mcount_startup(void)
 
 	symtabs.dirname = dirname;
 
-	if (filter_str || trigger_str || argument_str || retval_str || patch_str)
-		symtabs.flags &= ~SYMTAB_FL_SKIP_NORMAL;
-	if (plthook_str)
-		symtabs.flags &= ~SYMTAB_FL_SKIP_DYNAMIC;
-
 	mcount_exename = read_exename();
 	record_proc_maps(dirname, session_name(), &symtabs);
 	set_kernel_base(&symtabs, session_name());
 	load_symtabs(&symtabs, NULL, mcount_exename);
 
 #ifndef DISABLE_MCOUNT_FILTER
-	uftrace_setup_filter_module(filter_str, &modules, mcount_exename);
-	uftrace_setup_filter_module(trigger_str, &modules, mcount_exename);
-	uftrace_setup_filter_module(argument_str, &modules, mcount_exename);
-	uftrace_setup_filter_module(retval_str, &modules, mcount_exename);
-
-	load_module_symtabs(&symtabs, &modules, nest_libcall);
+	load_module_symtabs(&symtabs);
 
 	uftrace_setup_filter(filter_str, &symtabs, &mcount_triggers,
 			    &mcount_filter_mode);
