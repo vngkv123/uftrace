@@ -948,6 +948,7 @@ static bool check_tid_list(void)
 struct dlopen_list {
 	struct list_head list;
 	char *libname;
+	uint64_t addr;
 };
 
 static LIST_HEAD(dlopen_libs);
@@ -1148,6 +1149,7 @@ static void read_record_mmap(int pfd, const char *dirname, int bufsize)
 
 		dlib = xmalloc(sizeof(*dlib));
 		dlib->libname = exename;
+		dlib->addr = dmsg.base_addr;
 		list_add_tail(&dlib->list, &dlopen_libs);
 
 		write_dlopen_info(dirname, &dmsg, exename);
@@ -1296,7 +1298,8 @@ static void save_session_symbols(struct opts *opts)
 		/* main executable */
 		pr_dbg2("try to load main: %s\n", symtabs.maps->libname);
 		load_symtabs(&symtabs, opts->dirname, symtabs.maps->libname);
-		save_symbol_file(&symtabs, opts->dirname, symtabs.filename);
+		save_symbol_file(&symtabs, opts->dirname, symtabs.filename,
+			symtabs.maps->start);
 
 		/* shared libraries */
 		load_module_symtabs(&symtabs);
@@ -1729,14 +1732,24 @@ static void write_symbol_files(struct writer_data *wd, struct opts *opts)
 
 	/* dynamically loaded libraries using dlopen() */
 	list_for_each_entry_safe(dlib, tmp, &dlopen_libs, list) {
+		struct uftrace_mmap *dlib_map;
 		struct symtabs dlib_symtabs = {
-			.loaded = false,
+			.flags = SYMTAB_FL_ADJ_OFFSET,
 		};
 
+		dlib_map = xzalloc(sizeof(*dlib_map) + strlen(dlib->libname) + 1);
+		dlib_map->start = dlib->addr;
+		memcpy(dlib_map->libname, dlib->libname, strlen(dlib->libname) + 1);
+		dlib_symtabs.maps = dlib_map;
+
 		load_symtabs(&dlib_symtabs, opts->dirname, dlib->libname);
-		save_symbol_file(&dlib_symtabs, opts->dirname, dlib->libname);
+		save_symbol_file(&dlib_symtabs, opts->dirname, dlib->libname,
+				 dlib->addr);
 
 		list_del(&dlib->list);
+
+		unload_symtabs(&dlib_symtabs);
+		free(dlib_map);
 
 		free(dlib->libname);
 		free(dlib);
