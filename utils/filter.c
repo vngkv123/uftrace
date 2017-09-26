@@ -833,6 +833,32 @@ static void add_auto_argument(struct rb_root *root, struct uftrace_filter *entry
 	rb_link_node(&new->node, parent, p);
 	rb_insert_color(&new->node, root);
 }
+
+static struct uftrace_filter * find_auto_argument(struct rb_root *root,
+						  char *name)
+{
+	struct rb_node *parent = NULL;
+	struct rb_node **p = &root->rb_node;
+	struct uftrace_filter *iter;
+	int cmp;
+
+	while (*p) {
+		parent = *p;
+		iter = rb_entry(parent, struct uftrace_filter, node);
+
+		cmp = strcmp(iter->name, name);
+		if (cmp == 0)
+			return iter;
+
+		if (cmp < 0)
+			p = &parent->rb_left;
+		else
+			p = &parent->rb_right;
+	}
+
+	return NULL;
+}
+
 static void setup_auto_args(const char *args_str, struct rb_root *root)
 {
 	char *str;
@@ -899,6 +925,118 @@ static void finish_auto_args(struct rb_root *root)
 		free(entry);
 	}
 }
+
+static void setup_trigger_argument(char *arg_str, struct symtabs *symtabs,
+				   struct rb_root *root, bool is_retval)
+{
+	char *str;
+	char *pos, *name;
+
+	if (arg_str == NULL)
+		return;
+
+	pos = str = strdup(arg_str);
+	if (str == NULL)
+		return;
+
+	name = strtok(pos, ";");
+	while (name) {
+		LIST_HEAD(args);
+		struct uftrace_trigger tr = {
+			.pargs = &args,
+		};
+		struct uftrace_trigger *t = &tr;
+		int ret = 0;
+		char *module = NULL;
+		struct uftrace_arg_spec *arg;
+		struct uftrace_mmap *map;
+		bool is_regex;
+
+		if (setup_trigger_action(name, &tr, &module) < 0)
+			goto next;
+
+		/* skip unintended kernel symbols */
+		if (module && !strcasecmp(module, "kernel"))
+			goto next;
+
+		is_regex = strpbrk(name, REGEX_CHARS);
+
+		/* if it doesn't give arg-spec, use auto-arg */
+		if ((!is_retval && !(tr.flags & TRIGGER_FL_ARGUMENT)) ||
+		    (is_retval && !(tr.flags & TRIGGER_FL_RETVAL))) {
+			struct uftrace_filter *entry;
+			struct rb_root *auto_root;
+
+			/* TODO: use DWARF info */
+
+			/* TODO: handle regex pattern */
+			if (is_regex)
+				goto next;
+
+			auto_root = is_retval ? &auto_rval : &auto_args;
+			entry = find_auto_argument(auto_root, name);
+			if (entry == NULL)
+				goto next;
+
+			t = &entry->trigger;
+		}
+
+		if (module) {
+			map = find_map_by_name(symtabs, module);
+			if (map == NULL && strcasecmp(module, "PLT")) {
+				free(module);
+				goto next;
+			}
+
+			/* is it the main executable? */
+			if (!strncmp(module, basename(symtabs->filename),
+				     strlen(module))) {
+				ret += add_trigger_entry(root, &symtabs->symtab,
+							 name, is_regex, t);
+				ret += add_trigger_entry(root, &symtabs->dsymtab,
+							 name, is_regex, t);
+			}
+			else if (!strcasecmp(module, "PLT")) {
+				ret = add_trigger_entry(root, &symtabs->dsymtab,
+							name, is_regex, t);
+			}
+			else {
+				ret = add_trigger_entry(root, &map->symtab,
+							name, is_regex, t);
+			}
+
+			free(module);
+		}
+		else {
+			/* check main executable's symtab first */
+			ret += add_trigger_entry(root, &symtabs->symtab, name,
+						 is_regex, t);
+			ret += add_trigger_entry(root, &symtabs->dsymtab, name,
+						 is_regex, t);
+
+			/* and then find all module's symtabs */
+			map = symtabs->maps;
+			while (map) {
+				ret += add_trigger_entry(root, &map->symtab,
+							 name, is_regex, t);
+				map = map->next;
+			}
+		}
+
+next:
+		name = strtok(NULL, ";");
+
+		while (!list_empty(&args)) {
+			arg = list_first_entry(&args, struct uftrace_arg_spec, list);
+			list_del(&arg->list);
+			free(arg);
+		}
+
+	}
+
+	free(str);
+}
+
 /**
  * uftrace_setup_filter - construct rbtree of filters
  * @filter_str - CSV of filter string
@@ -934,7 +1072,7 @@ void uftrace_setup_argument(char *args_str, struct symtabs *symtabs,
 			    struct rb_root *root)
 {
 	setup_auto_args(NULL, &auto_args);
-	setup_trigger(args_str, symtabs, root, 0, NULL);
+	setup_trigger_argument(args_str, symtabs, root, false);
 }
 
 /**
@@ -947,7 +1085,7 @@ void uftrace_setup_retval(char *retval_str, struct symtabs *symtabs,
 			  struct rb_root *root)
 {
 	setup_auto_args(NULL, &auto_rval);
-	setup_trigger(retval_str, symtabs, root, 0, NULL);
+	setup_trigger_argument(retval_str, symtabs, root, true);
 }
 
 /**
