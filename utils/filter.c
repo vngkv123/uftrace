@@ -15,6 +15,9 @@
 #include "utils/utils.h"
 #include "utils/list.h"
 
+/* RB-tree maintaining automatic arguments and return value */
+static struct rb_root auto_args = RB_ROOT;
+static struct rb_root auto_rval = RB_ROOT;
 
 static void snprintf_trigger_read(char *buf, size_t len,
 				  enum trigger_read_type type)
@@ -791,6 +794,111 @@ next:
 	free(str);
 }
 
+static void add_auto_argument(struct rb_root *root, struct uftrace_filter *entry,
+			      struct uftrace_trigger *tr)
+{
+	struct rb_node *parent = NULL;
+	struct rb_node **p = &root->rb_node;
+	struct uftrace_filter *iter, *new;
+	int cmp;
+
+	pr_dbg2("add auto-argument for %s\n", entry->name);
+	if (dbg_domain[DBG_FILTER] >= 3)
+		print_trigger(tr);
+
+	while (*p) {
+		parent = *p;
+		iter = rb_entry(parent, struct uftrace_filter, node);
+
+		cmp = strcmp(iter->name, entry->name);
+		if (cmp == 0) {
+			add_trigger(iter, tr, true);
+			return;
+		}
+
+		if (cmp < 0)
+			p = &parent->rb_left;
+		else
+			p = &parent->rb_right;
+	}
+
+	new = xmalloc(sizeof(*new));
+	memcpy(new, entry, sizeof(*new));
+	new->trigger.flags = 0;
+	INIT_LIST_HEAD(&new->args);
+	new->trigger.pargs = &new->args;
+
+	add_trigger(new, tr, true);
+
+	rb_link_node(&new->node, parent, p);
+	rb_insert_color(&new->node, root);
+}
+static void setup_auto_args(const char *args_str, struct rb_root *root)
+{
+	char *str;
+	char *pos, *name;
+
+	if (args_str == NULL)
+		return;
+
+	pos = str = strdup(args_str);
+	if (str == NULL)
+		return;
+
+	name = strtok(pos, ";");
+	while (name) {
+		LIST_HEAD(args);
+		struct uftrace_arg_spec *arg;
+		struct uftrace_trigger tr = {
+			.pargs = &args,
+		};
+		struct uftrace_filter entry = {
+			.name = NULL,
+		};
+
+		if (setup_trigger_action(name, &tr, NULL) < 0)
+			goto next;
+
+		/*
+		 * it should be copied after setup_trigger_action() removed
+		 * '@' for the arg spec
+		 */
+		entry.name = xstrdup(name);
+		add_auto_argument(root, &entry, &tr);
+next:
+		name = strtok(NULL, ";");
+
+		while (!list_empty(&args)) {
+			arg = list_first_entry(&args, struct uftrace_arg_spec, list);
+			list_del(&arg->list);
+			free(arg);
+		}
+	}
+
+	free(str);
+}
+
+static void finish_auto_args(struct rb_root *root)
+{
+	struct rb_node *p;
+	struct uftrace_filter *entry;
+	struct uftrace_arg_spec *arg, *tmp;
+
+	while (!RB_EMPTY_ROOT(root)) {
+		p = rb_first(root);
+		entry = rb_entry(p, struct uftrace_filter, node);
+
+		rb_erase(p, root);
+
+		list_for_each_entry_safe(arg, tmp, &entry->args, list) {
+			list_del(&arg->list);
+			free(arg);
+		}
+
+		free(entry->name);
+		free(entry);
+	}
+}
 /**
  * uftrace_setup_filter - construct rbtree of filters
  * @filter_str - CSV of filter string
@@ -825,6 +933,7 @@ void uftrace_setup_trigger(char *trigger_str, struct symtabs *symtabs,
 void uftrace_setup_argument(char *args_str, struct symtabs *symtabs,
 			    struct rb_root *root)
 {
+	setup_auto_args(NULL, &auto_args);
 	setup_trigger(args_str, symtabs, root, 0, NULL);
 }
 
@@ -837,6 +946,7 @@ void uftrace_setup_argument(char *args_str, struct symtabs *symtabs,
 void uftrace_setup_retval(char *retval_str, struct symtabs *symtabs,
 			  struct rb_root *root)
 {
+	setup_auto_args(NULL, &auto_rval);
 	setup_trigger(retval_str, symtabs, root, 0, NULL);
 }
 
@@ -862,6 +972,9 @@ void uftrace_cleanup_filter(struct rb_root *root)
 		}
 		free(filter);
 	}
+
+	finish_auto_args(&auto_args);
+	finish_auto_args(&auto_rval);
 }
 
 /**
