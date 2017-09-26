@@ -14,6 +14,7 @@
 #include "utils/rbtree.h"
 #include "utils/utils.h"
 #include "utils/list.h"
+#include "utils/auto-args.h"
 
 /* RB-tree maintaining automatic arguments and return value */
 static struct rb_root auto_args = RB_ROOT;
@@ -1071,7 +1072,7 @@ void uftrace_setup_trigger(char *trigger_str, struct symtabs *symtabs,
 void uftrace_setup_argument(char *args_str, struct symtabs *symtabs,
 			    struct rb_root *root)
 {
-	setup_auto_args(NULL, &auto_args);
+	setup_auto_args(auto_args_list, &auto_args);
 	setup_trigger_argument(args_str, symtabs, root, false);
 }
 
@@ -1084,7 +1085,7 @@ void uftrace_setup_argument(char *args_str, struct symtabs *symtabs,
 void uftrace_setup_retval(char *retval_str, struct symtabs *symtabs,
 			  struct rb_root *root)
 {
-	setup_auto_args(NULL, &auto_rval);
+	setup_auto_args(auto_retvals_list, &auto_rval);
 	setup_trigger_argument(retval_str, symtabs, root, true);
 }
 
