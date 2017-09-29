@@ -936,6 +936,85 @@ static void finish_auto_args(struct rb_root *root)
 	}
 }
 
+static void add_auto_argspec_symtab(struct rb_root *root, char *pattern,
+				    struct symtab *symtab, bool is_retval)
+{
+	size_t i;
+	regex_t re;
+	struct rb_root *auto_root;
+	struct uftrace_filter filter;
+	struct uftrace_filter *entry;
+
+	if (regcomp(&re, pattern, REG_NOSUB | REG_EXTENDED)) {
+		pr_dbg("regex pattern failed: %s\n", pattern);
+		return;
+	}
+
+	for (i = 0; i < symtab->nr_sym; i++) {
+		struct sym *sym = &symtab->sym[i];
+
+		if (regexec(&re, sym->name, 0, NULL, 0))
+			continue;
+
+		auto_root = is_retval ? &auto_rval : &auto_args;
+		entry = find_auto_argument(auto_root, sym->name);
+		if (entry == NULL)
+			continue;
+
+		filter.name = sym->name;
+		filter.start = sym->addr;
+		filter.end = sym->addr + sym->size;
+
+		add_filter(root, &filter, &entry->trigger, true);
+	}
+
+	regfree(&re);
+}
+
+static void add_auto_argspec_regex(struct rb_root *root, struct symtabs *symtabs,
+				   char *module, char *pattern, bool is_retval)
+{
+	struct uftrace_mmap *map;
+
+	if (module) {
+		map = find_map_by_name(symtabs, module);
+		if (map == NULL && strcasecmp(module, "PLT"))
+			return;
+
+		/* is it the main executable? */
+		if (!strncmp(module, basename(symtabs->filename),
+			     strlen(module))) {
+			add_auto_argspec_symtab(root, pattern,
+						&symtabs->symtab, is_retval);
+			add_auto_argspec_symtab(root, pattern,
+						&symtabs->dsymtab, is_retval);
+		}
+		else if (!strcasecmp(module, "PLT")) {
+			add_auto_argspec_symtab(root, pattern,
+						&symtabs->dsymtab, is_retval);
+		}
+		else {
+			add_auto_argspec_symtab(root, pattern,
+						&map->symtab, is_retval);
+		}
+	}
+	else {
+		/* check main executable's symtab first */
+		add_auto_argspec_symtab(root, pattern,
+					&symtabs->symtab, is_retval);
+		add_auto_argspec_symtab(root, pattern,
+					&symtabs->dsymtab, is_retval);
+
+		/* and then find all module's symtabs */
+		map = symtabs->maps;
+		while (map) {
+			add_auto_argspec_symtab(root, pattern,
+						&map->symtab, is_retval);
+			map = map->next;
+		}
+	}
+}
+
 static void setup_trigger_argument(char *arg_str, struct symtabs *symtabs,
 				   struct rb_root *root, bool is_retval)
 {
@@ -977,9 +1056,11 @@ static void setup_trigger_argument(char *arg_str, struct symtabs *symtabs,
 
 			/* TODO: use DWARF info */
 
-			/* TODO: handle regex pattern */
-			if (is_regex)
+			if (is_regex) {
+				add_auto_argspec_regex(root, symtabs, module,
+						       name, is_retval);
 				goto next;
+			}
 
 			auto_root = is_retval ? &auto_rval : &auto_args;
 			entry = find_auto_argument(auto_root, name);
