@@ -14,7 +14,7 @@
 #include "utils/rbtree.h"
 #include "utils/utils.h"
 #include "utils/list.h"
-
+#include "utils/dwarf.h"
 
 static void snprintf_trigger_read(char *buf, size_t len,
 				  enum trigger_read_type type)
@@ -248,8 +248,12 @@ static void add_filter(struct rb_root *root, struct uftrace_filter *filter,
 	rb_insert_color(&new->node, root);
 }
 
+static int parse_argument_spec(char *, struct uftrace_trigger *);
+static int parse_float_argument_spec(char *, struct uftrace_trigger *);
+
 static int add_exact_filter(struct rb_root *root, struct symtab *symtab,
-			    char *filter_str, struct uftrace_trigger *tr)
+			    char *filter_str, struct uftrace_trigger *tr,
+			    struct debug_info *dinfo)
 {
 	struct uftrace_filter filter;
 	struct sym *sym;
@@ -257,6 +261,22 @@ static int add_exact_filter(struct rb_root *root, struct symtab *symtab,
 	sym = find_symname(symtab, filter_str);
 	if (sym == NULL)
 		return 0;
+
+	if ((tr->flags & TRIGGER_FL_ARGUMENT) && list_empty(tr->pargs)) {
+		char *argspec, *pos, *tmp;
+
+		tmp = argspec = get_dwarf_argspec(dinfo, sym);
+		while ((pos = strsep(&argspec, ",")) != NULL) {
+			if (!strncmp(pos, "arg", 3))
+				parse_argument_spec(pos, tr);
+			else if (!strncmp(pos, "fparg", 5))
+				parse_float_argument_spec(pos, tr);
+		}
+		free(tmp);
+
+		if (list_empty(tr->pargs))
+			return 0;
+	}
 
 	filter.name = sym->name;
 	filter.start = sym->addr;
@@ -267,7 +287,8 @@ static int add_exact_filter(struct rb_root *root, struct symtab *symtab,
 }
 
 static int add_regex_filter(struct rb_root *root, struct symtab *symtab,
-			    char *filter_str, struct uftrace_trigger *tr)
+			    char *filter_str, struct uftrace_trigger *tr,
+			    struct debug_info *dinfo)
 {
 	struct uftrace_filter filter;
 	struct sym *sym;
@@ -281,10 +302,37 @@ static int add_regex_filter(struct rb_root *root, struct symtab *symtab,
 	}
 
 	for (i = 0; i < symtab->nr_sym; i++) {
+		LIST_HEAD(dwarf_spec);
+		struct uftrace_trigger dwarf_tr = {
+			.pargs = &dwarf_spec,
+		};
+		struct uftrace_trigger *orig_tr = tr;
+
 		sym = &symtab->sym[i];
 
 		if (regexec(&re, sym->name, 0, NULL, 0))
 			continue;
+
+		if ((tr->flags & TRIGGER_FL_ARGUMENT) && list_empty(tr->pargs)) {
+			char *argspec, *pos, *tmp;
+
+			memcpy(&dwarf_tr, tr, sizeof(*tr));
+			dwarf_tr.pargs = &dwarf_spec;
+
+			tmp = argspec = get_dwarf_argspec(dinfo, sym);
+			while ((pos = strsep(&argspec, ",")) != NULL) {
+				if (!strncmp(pos, "arg", 3))
+					parse_argument_spec(pos, &dwarf_tr);
+				else if (!strncmp(pos, "fparg", 5))
+					parse_float_argument_spec(pos, &dwarf_tr);
+			}
+			free(tmp);
+
+			if (list_empty(&dwarf_spec))
+				continue;
+
+			tr = &dwarf_tr;
+		}
 
 		filter.name = sym->name;
 		filter.start = sym->addr;
@@ -292,6 +340,17 @@ static int add_regex_filter(struct rb_root *root, struct symtab *symtab,
 
 		add_filter(root, &filter, tr, false);
 		ret++;
+
+		if (!list_empty(&dwarf_spec)) {
+			struct uftrace_arg_spec *arg, *tmp;
+
+			list_for_each_entry_safe(arg, tmp, &dwarf_spec, list) {
+				list_del(&arg->list);
+				free(arg);
+			}
+		}
+
+		tr = orig_tr;
 	}
 
 	regfree(&re);
@@ -704,6 +763,7 @@ static void setup_trigger(char *filter_str, struct symtabs *symtabs,
 {
 	char *str;
 	char *pos, *name;
+	struct debug_info dinfo = {};
 
 	if (filter_str == NULL)
 		return;
@@ -711,6 +771,10 @@ static void setup_trigger(char *filter_str, struct symtabs *symtabs,
 	pos = str = strdup(filter_str);
 	if (str == NULL)
 		return;
+
+	if (flags & TRIGGER_FL_ARGUMENT)
+		setup_debug_info(symtabs->filename, &dinfo,
+				 symtabs->maps->start);
 
 	name = strtok(pos, ";");
 	while (name) {
@@ -743,9 +807,9 @@ static void setup_trigger(char *filter_str, struct symtabs *symtabs,
 
 again:
 		if (is_regex)
-			ret += add_regex_filter(root, symtab, name, &tr);
+			ret += add_regex_filter(root, symtab, name, &tr, &dinfo);
 		else
-			ret += add_exact_filter(root, symtab, name, &tr);
+			ret += add_exact_filter(root, symtab, name, &tr, &dinfo);
 
 		if (!mod_found && (ret == 0 || is_regex)) {
 			symtab = &symtabs->dsymtab;
@@ -770,6 +834,7 @@ next:
 
 	}
 
+	release_debug_info(&dinfo);
 	free(str);
 }
 
@@ -807,7 +872,7 @@ void uftrace_setup_trigger(char *trigger_str, struct symtabs *symtabs,
 void uftrace_setup_argument(char *args_str, struct symtabs *symtabs,
 			    struct rb_root *root)
 {
-	setup_trigger(args_str, symtabs, root, 0, NULL);
+	setup_trigger(args_str, symtabs, root, TRIGGER_FL_ARGUMENT, NULL);
 }
 
 /**
@@ -819,7 +884,7 @@ void uftrace_setup_argument(char *args_str, struct symtabs *symtabs,
 void uftrace_setup_retval(char *retval_str, struct symtabs *symtabs,
 			  struct rb_root *root)
 {
-	setup_trigger(retval_str, symtabs, root, 0, NULL);
+	setup_trigger(retval_str, symtabs, root, TRIGGER_FL_RETVAL, NULL);
 }
 
 void uftrace_setup_filter_module(char *trigger_str, struct list_head *head,
