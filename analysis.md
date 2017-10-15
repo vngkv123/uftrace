@@ -8,3 +8,7 @@ gef➤  p &start_command
 $2 = (int (*)(const char **)) 0x419d24 <start_pager+132>
 gef➤  x/40i 0x419d24
 ```
+
+# When this binary print call graph?
+**below routine**
+- `execvp(argv[0], (char *const *)argv);`
