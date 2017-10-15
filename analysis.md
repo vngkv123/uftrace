@@ -13,6 +13,7 @@ gef➤  x/40i 0x419d24
 **below routine**
 - default is command_live()
 - current is `=> 0x404b7e <main+1342>:	call   0x416940 <command_live>`
-- next result is below one
+- if you want to debug child process, type `set follow-fork-mode child` in gdb.
+- `command_live` -> `command_record` -> `command_replay` is called in command_live()
 ```
 
