@@ -26,3 +26,7 @@
 - `1584 static void start_tracing(struct writer_data *wd, struct opts *opts, int ready_fd)`
 - `1622         pthread_create(&wd->writers[i], NULL, writer_thread, warg);`
 - ` 565 void *writer_thread(void *arg)`
+
+
+**show call graph -> command_replay()**
+- `1011             ret = print_graph_rstack(&handle, task, opts);` -> show call graph
