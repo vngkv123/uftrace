@@ -30,3 +30,13 @@
 
 **show call graph -> command_replay()**
 - `1011             ret = print_graph_rstack(&handle, task, opts);` -> show call graph
+
+**struct sym**
+```
+ 27 struct sym {
+ 28     uint64_t addr;
+ 29     unsigned size;
+ 30     enum symtype type;
+ 31     char *name;
+ 32 };
+ ```
