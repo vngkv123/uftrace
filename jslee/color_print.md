@@ -13,11 +13,18 @@
 
 # add find_vuln_sym
 ```
-  34 static int find_vuln_sym(char *__symname){
-  35     for(int idx = 0; vuln_sym_list; vuln_sym_list[idx++]){
-  36        if(!strncmp(vuln_sym_list[i], __symname, strlen(__symname)))
-  37            return 1;
-  38     }
-  39     return 0;
-  40 } 
+  32 /* my function -> find vuln function */
+  33 
+  34 #define sym_num 21
+  35 char *vuln_sym_list[sym_num] = {"exec", "system", "gets", "popen", "getenv", "strcpy", "strncpy", "strcat", "strncat",
+  36         "memcpy", "bcopy", "printf", "sprintf", "snprintf", "__isoc99_scanf",  "getchar", "getc", "read",
+  37             "recv", "tmp", "temp"};
+  38 
+  39 static int find_vuln_sym(char *__symname){
+  40     for(int idx = 0; idx < sym_num; idx++){
+  41         if(!strncmp(vuln_sym_list[idx], __symname, strlen(__symname)))
+  42             return 1;
+  43     }
+  44     return 0;
+  45 }
   ```
