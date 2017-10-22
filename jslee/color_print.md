@@ -18,7 +18,7 @@
   34 #define sym_num 21
   35 char *vuln_sym_list[sym_num] = {"exec", "system", "gets", "popen", "getenv", "strcpy", "strncpy", "strcat", "strncat",
   36         "memcpy", "bcopy", "printf", "sprintf", "snprintf", "__isoc99_scanf",  "getchar", "getc", "read",
-  37             "recv", "tmp", "temp"};
+  37             "recv", "tmp", "temp", "scanf"};
   38 
   39 static int find_vuln_sym(char *__symname){
   40     for(int idx = 0; idx < sym_num; idx++){
@@ -28,3 +28,4 @@
   44     return 0;
   45 }
   ```
+- get idea from gdb-peda plugin
