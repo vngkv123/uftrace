@@ -14,10 +14,11 @@
 1505     struct uftrace_perf_writer  perf;
 1506 };
 ```
-- set pid and pipe file descriptor
+**set pid and pipe file descriptor**
 ```
 1777     wd.pid = pid;
 1778     wd.pipefd = pfd[0];
 ```
 - Q) I dont know why close pipefd[1] : `1779     close(pfd[1]);`
-- `1781     setup_writers(&wd, opts);`
+**`1781     setup_writers(&wd, opts);`**
+
