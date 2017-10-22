@@ -20,5 +20,9 @@
 1778     wd.pipefd = pfd[0];
 ```
 - Q) I dont know why close pipefd[1] : `1779     close(pfd[1]);`
-**`1781     setup_writers(&wd, opts);`**
 
+**important routine**
+- `1781     setup_writers(&wd, opts);`
+- `1584 static void start_tracing(struct writer_data *wd, struct opts *opts, int ready_fd)`
+- `1622         pthread_create(&wd->writers[i], NULL, writer_thread, warg);`
+- ` 565 void *writer_thread(void *arg)`
