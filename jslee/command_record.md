@@ -40,3 +40,4 @@
  31     char *name;
  32 };
  ```
+ - -> sym->name has function name
