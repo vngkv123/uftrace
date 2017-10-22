@@ -7,3 +7,17 @@
  728                 pr_out("%s%s%s\n", symname, args, retval);
  729             }
  ```
+
+# add vuln_sym_list
+`32 char *vuln_sym_list[48];`
+
+# add find_vuln_sym
+```
+  34 static int find_vuln_sym(char *__symname){
+  35     for(int idx = 0; vuln_sym_list; vuln_sym_list[idx++]){
+  36        if(!strncmp(vuln_sym_list[i], __symname, strlen(__symname)))
+  37            return 1;
+  38     }
+  39     return 0;
+  40 } 
+  ```
