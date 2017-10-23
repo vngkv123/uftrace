@@ -43,6 +43,7 @@
  - -> sym->name has function name
 
 **write symbol file**
+- in `uilts/symbol.c`
 ```
 1185 do_it:
 1186     /* dynamic symbols */
