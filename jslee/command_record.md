@@ -41,3 +41,12 @@
  32 };
  ```
  - -> sym->name has function name
+
+**write symbol file**
+```
+1185 do_it:
+1186     /* dynamic symbols */
+1187     for (i = 0; i < dtab->nr_sym; i++)
+1188         fprintf(fp, "%016"PRIx64" %c %s\n", dtab->sym_names[i]->addr - offset,
+1189                (char) dtab->sym_names[i]->type, dtab->sym_names[i]->name);
+```
