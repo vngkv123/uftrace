@@ -14,3 +14,5 @@
 1400         EM_X86_64, EM_ARM, EM_AARCH64,
 1401     };
 ```
+- `EM_X86_64, EM_ARM, EM_AARCH64`
+- need to develop `EM_X86` ( 32bit ) binary
